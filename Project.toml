@@ -1,0 +1,6 @@
+authors = ["Allen Hill <allenofthehills@gmail.com>"]
+name = "InverseKinematics"
+uuid = "179680d6-c280-11e8-29ff-f7acf434fe9d"
+version = "0.1.0"
+
+[deps]
