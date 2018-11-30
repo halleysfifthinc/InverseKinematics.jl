@@ -1,6 +1,11 @@
-authors = ["Allen Hill <allenofthehills@gmail.com>"]
 name = "InverseKinematics"
 uuid = "179680d6-c280-11e8-29ff-f7acf434fe9d"
+authors = ["Allen Hill <allenofthehills@gmail.com>"]
 version = "0.1.0"
 
 [deps]
+CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
