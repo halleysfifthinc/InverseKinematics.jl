@@ -14,16 +14,22 @@ export kabsch!,
        rmat,
        unit
 
-struct SegOpt{T}; end
+export SegOpt,
+       Kabsch,
+       FA3R
+
+struct SegOpt{T}
+    alg::T
+end
+SegOpt() = SegOpt{Kabsch}(Kabsch())
+
 struct Kabsch; end
+
 struct FA3R{T}
     maxiter::Int
     ϵ::T
 end
-
-SegOpt(::T) where T = SegOpt{T}()
-SegOpt() = SegOpt{Kabsch}()
-FA3R() = FA3R{Float64}(100, 0.0)
+FA3R() = FA3R{Float32}(750, 1f-15)
 
 AbstractPoints{T} = AbstractVector{SVector{3,T}}
 
@@ -83,6 +89,14 @@ function inversekinematics(::SegOpt{Kabsch}, model, data)
         end
     end
     return ikdata
+end
+
+function fitseg(::Kabsch, Q, P)
+    kabsch!(Q, P)
+end
+
+function fitseg(f::FA3R, Q, P)
+    fa3r!(Q, P, f.maxiter, f.ϵ)
 end
 
 function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
@@ -158,28 +172,6 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) 
     qt = Quat(R)
 
     return (qt, t, e)
-end
-
-# Kabsch algorithm
-"""
-    fitseg(Q,P)
-
-Find the optimal rotation between two sets of points `P` and `Q`, where `P` is the original orientation, and `Q` is the new orientation.
-"""
-function fitseg(Q, P)
-    # Center both sets of points
-    q = Q .- Ref(mean(Q))
-    p = P .- Ref(mean(P))
-
-    # Cross-covariance matrix
-    H = sum(p .* transpose.(q))
-    Hsvd = svd(H)
-
-    # Correct for handedness (corrects to a right-handed system)
-    Hp = Hsvd.V*Hsvd.U'
-    di = SMatrix{3,3}(Diagonal(SVector{3}(1, 1, sign(det(Hp)))))
-
-    R = Hsvd.V * di * Hsvd.U'
 end
 
 function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}, R::SMatrix{3,3,T}) where T
