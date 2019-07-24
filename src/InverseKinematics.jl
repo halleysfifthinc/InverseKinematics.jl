@@ -8,7 +8,11 @@ using LinearAlgebra: norm_sqr
 using Rotations, CoordinateTransformations, StaticArrays
 
 export kabsch!,
-       fa3r!
+       fa3r!,
+       fitseg,
+       metricerror,
+       rmat,
+       unit
 
 struct SegOpt{T}; end
 struct Kabsch; end
