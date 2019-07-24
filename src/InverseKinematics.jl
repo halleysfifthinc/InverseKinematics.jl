@@ -27,7 +27,7 @@ FA3R() = FA3R{Float64}(100, 0.0)
 
 AbstractPoints{T} = AbstractVector{SVector{3,T}}
 
-struct IKSeg{S,T,L}
+struct IKSeg{N,T}
     def::SVector{N,SVector{3,T}}
     pos::SVector{3,T}
     ori::Quat{T}
