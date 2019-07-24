@@ -22,28 +22,11 @@ SegOpt() = SegOpt{Kabsch}()
 FA3R() = FA3R{Float64}(100, 0.0)
 
 struct IKSeg{S,T,L}
-    _def::SVector{L,T}
-    origin::SVector{3,T}
+    def::SVector{N,SVector{3,T}}
+    pos::SVector{3,T}
     ori::Quat{T}
     prox::SVector{3,T}
     dist::SVector{3,T}
-end
-
-function IKSeg(def::SVector{L,T}, ori::Quat{T}, prox::SVector{3,T}, dist::SVector{3,T}) where {L, T}
-    if !iszero(L % 3)
-        throw(ArgumentError("def must be a multiple of 3"))
-    else
-        origin = mean(reinterpret(SVector{3,T}, def))
-        return IKSeg{fld(L,3),T,L}(def, origin, ori, prox, dist)
-    end
-end
-
-function getproperty(s::IKSeg{N,T}, b) where {N,T}
-    if b == :def
-        return reinterpret(SVector{3,T},s._def)
-    else
-        return getfield(s,b)
-    end
 end
 
 struct IKModel{T}
