@@ -25,6 +25,8 @@ SegOpt(::T) where T = SegOpt{T}()
 SegOpt() = SegOpt{Kabsch}()
 FA3R() = FA3R{Float64}(100, 0.0)
 
+AbstractPoints{T} = AbstractVector{SVector{3,T}}
+
 struct IKSeg{S,T,L}
     def::SVector{N,SVector{3,T}}
     pos::SVector{3,T}
@@ -83,18 +85,18 @@ function inversekinematics(::SegOpt{Kabsch}, model, data)
     return ikdata
 end
 
-# Kabsch algorithm with minimal allocations, using buffers q and p
-function kabsch!(Q, P, q, p, Ht)
+function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
     # Calculate point set's centroid
     q_cent, p_cent = mean(Q), mean(P)
 
-    # Center each set of points
-    map!(x -> x - p_cent, p, P)
-    map!(x -> x - q_cent, q, Q)
+    H = zero(SArray{Tuple{3,3},T})
+    for i in eachindex(Q,P)
+        p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
+        q′ = SArray{Tuple{1,3},T}(Q[i] - q_cent)
 
-    # Cross-covariance matrix
-    broadcast!(*, Ht, p, q)
-    H = sum(Ht)
+        # Cross-covariance matrix
+        H = H + (p′ * q′)
+    end
 
     # SVD
     Hsvd = svd(H)
@@ -106,25 +108,26 @@ function kabsch!(Q, P, q, p, Ht)
     di = SMatrix{3,3}(Diagonal(SVector{3}(1, 1, sign(det(Hp)))))
 
     R = V * di * U'
-    T = q_cent - p_cent
+    t = q_cent - p_cent
     e = metricerror(Q, P, R)
 
     qt = Quat(R)
 
-    return (qt, T, e)
+    return (qt, t, e)
 end
 
-function fa3r!(Q, P, q, p, Ht, maxk::Int=100, ϵ=0)
+function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) where T
     # Calculate point set's centroid
     q_cent, p_cent = mean(Q), mean(P)
 
-    # Center each set of points
-    map!(x -> x - p_cent, p, P)
-    map!(x -> x - q_cent, q, Q)
+    H = zero(SArray{Tuple{3,3},T})
+    for i in eachindex(Q,P)
+        p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
+        q′ = SArray{Tuple{1,3},T}(Q[i] - q_cent)
 
-    # Cross-covariance matrix
-    broadcast!(*, Ht, p, q)
-    H = sum(Ht)
+        # Cross-covariance matrix
+        H = H + (p′ * q′)
+    end
 
     # Iterative method a la. Wu et al. 2018
     vkx = H[:,1]
@@ -151,12 +154,12 @@ function fa3r!(Q, P, q, p, Ht, maxk::Int=100, ϵ=0)
     end
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
-    T = q_cent - p_cent
+    t = q_cent - p_cent
     e = metricerror(q, p, R)
 
     qt = Quat(R)
 
-    return (qt, T, e)
+    return (qt, t, e)
 end
 
 # Kabsch algorithm
