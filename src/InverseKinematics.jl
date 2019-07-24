@@ -136,7 +136,6 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) 
 
     k = 0
     while k < maxk
-        # ρₖ₋₁ = 2/(norm(vkx)^2 + norm(vky)^2 + norm(vkz)^2 + 1)
         ρₖ₋₁ = 2/(norm_sqr(vkx) + norm_sqr(vky) + norm_sqr(vkz) + 1)
 
         v1x = vkx
@@ -146,7 +145,6 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) 
         vky = ρₖ₋₁ * (v1y + v1z × v1x)
         vkz = ρₖ₋₁ * (v1z + v1x × v1y)
 
-        # if (norm(vkx - v1x)^2 + norm(vky - v1y)^2 + norm(vkz - v1z)^2) < ϵ
         if (norm_sqr(vkx - v1x) + norm_sqr(vky - v1y) + norm_sqr(vkz - v1z)) < ϵ
             break
         end
