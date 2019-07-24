@@ -26,7 +26,7 @@ SegOpt() = SegOpt{Kabsch}(Kabsch())
 struct Kabsch; end
 
 struct FA3R{T}
-    maxiter::Int
+    maxiters::Int
     ϵ::T
 end
 FA3R() = FA3R{Float32}(750, 1f-15)
@@ -96,7 +96,7 @@ function fitseg(::Kabsch, Q, P)
 end
 
 function fitseg(f::FA3R, Q, P)
-    fa3r!(Q, P, f.maxiter, f.ϵ)
+    fa3r!(Q, P, f.maxiters, f.ϵ)
 end
 
 function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
@@ -130,7 +130,7 @@ function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
     return (qt, t, e)
 end
 
-function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) where T
+function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ=0) where T
     # Calculate point set's centroid
     q_cent, p_cent = mean(Q), mean(P)
 
@@ -149,7 +149,7 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) 
     vkz = H[:,3]
 
     k = 0
-    while k < maxk
+    while k < maxiters
         ρₖ₋₁ = 2/(norm_sqr(vkx) + norm_sqr(vky) + norm_sqr(vkz) + 1)
 
         v1x = vkx
