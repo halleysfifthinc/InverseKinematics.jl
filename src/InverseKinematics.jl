@@ -109,7 +109,7 @@ function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
 
     R = V * di * U'
     t = q_cent - p_cent
-    e = metricerror(Q, P, R)
+    e = metricerror(Q, P, t, R)
 
     qt = Quat(R)
 
@@ -153,7 +153,7 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxk::Int=100, ϵ=0) 
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
     t = q_cent - p_cent
-    e = metricerror(q, p, R)
+    e = metricerror(Q, P, t, R)
 
     qt = Quat(R)
 
@@ -182,12 +182,14 @@ function fitseg(Q, P)
     R = Hsvd.V * di * Hsvd.U'
 end
 
-function metricerror(Q, P, R)
+function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}, R::SMatrix{3,3,T}) where T
     e = zero(eltype(R))
+    n = length(Q)
+
     for i in eachindex(Q,P)
-        e += norm_sqr(Q[i]' - R*P[i])
+        e += norm(Q[i] - R*P[i] - t)
     end
-    return e
+    return e/n
 end
 
 function rmat(p1, p2, p3)
