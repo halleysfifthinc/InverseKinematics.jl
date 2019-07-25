@@ -131,13 +131,54 @@ function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
 end
 
 function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ=0) where T
+    present = findpresent(Q)#::MArray{Tuple{j},Int,1,j}
+
+    _fa3r!(Q, P, present, maxiters, ϵ)::Tuple{Quat{T},SVector{3,T},T}
+end
+
+function findpresent(Q::AbstractPoints{T}) where T
+    N = 0
+    for i in eachindex(Q)
+        if Q[i] !== SVector{3,T}(NaN, NaN, NaN)
+            N += 1
+        end
+    end
+
+    present = MArray{Tuple{N},Int,1,N}(undef)
+
+    j = 1
+    for i in eachindex(Q)
+        if Q[i] !== SVector{3,T}(NaN, NaN, NaN)
+            present[j] = i
+            j += 1
+        end
+    end
+
+    return present
+end
+
+function _fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, present::MVector{S}, maxiters::Int=100, ϵ=0) where T where S
+    if S < 3 # A full fit isn't possible
+        t = zero(SVector{3, T})
+
+        if 0 < S # We can get a very rough position
+            q_cent, p_cent = mean(Q[present]), mean(P)
+            t = q_cent - p_cent
+        end
+
+        qt = one(Quat{T})
+        e = T(NaN)
+
+        return (qt, t, e)
+    end
+
     # Calculate point set's centroid
-    q_cent, p_cent = mean(Q), mean(P)
+    q_cent, p_cent = mean(Q[present])::SVector{3,T}, mean(P)
 
     H = zero(SArray{Tuple{3,3},T})
-    for i in eachindex(Q,P)
+    for i in present
         p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
-        q′ = SArray{Tuple{1,3},T}(Q[i] - q_cent)
+        q′ = SArray{Tuple{1,3},T}(Q[i]::SVector{3,T} - q_cent)
 
         # Cross-covariance matrix
         H = H + (p′ * q′)
@@ -166,10 +207,10 @@ function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ
     end
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
-    t = q_cent - p_cent
+    t::SVector{3,T} = q_cent - p_cent
     e = metricerror(Q, P, t, R)
 
-    qt = Quat(R)
+    qt = Quat{T}(R)
 
     return (qt, t, e)
 end
