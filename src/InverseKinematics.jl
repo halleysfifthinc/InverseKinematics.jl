@@ -208,7 +208,7 @@ function _fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, present::MVector{S},
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
     t::SVector{3,T} = q_cent - p_cent
-    e = metricerror(Q, P, t, R)
+    e = metricerror(Q, P, t, present, R)
 
     qt = Quat{T}(R)
 
@@ -220,6 +220,16 @@ function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}
     n = length(Q)
 
     for i in eachindex(Q,P)
+        e += norm(Q[i] - R*P[i] - t)
+    end
+    return e/n
+end
+
+function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}, idxs, R::SMatrix{3,3,T}) where T
+    e = zero(eltype(R))
+    n = length(idxs)
+
+    for i in idxs
         e += norm(Q[i] - R*P[i] - t)
     end
     return e/n
