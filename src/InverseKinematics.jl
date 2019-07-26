@@ -93,21 +93,40 @@ function inversekinematics(::SegOpt{Kabsch}, model, data)
 end
 
 function fitseg(::Kabsch, Q, P)
-    kabsch!(Q, P)
+    kabsch(Q, P)
 end
 
 function fitseg(f::FA3R, Q, P)
-    fa3r!(Q, P, f.maxiters, f.ϵ)
+    fa3r(Q, P, f.maxiters, f.ϵ)
 end
 
-function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
+function kabsch(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}) where T
+    present = findpresent(Q)
+
+    _kabsch(Q, P, present)
+end
+
+function kabsch(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
+    present = axes(Q, 1)
+
+    _kabsch(Q, P, present)
+end
+
+function _kabsch(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, present::MVector) where T
+    S = length(present)
+    if S < 3 # A full fit isn't possible
+        return incompletefit(S, Q, P, present)
+    end
+    _Q = Q[present]
+    _P = P[present]
+
     # Calculate point set's centroid
-    q_cent, p_cent = mean(Q), mean(P)
+    q_cent, p_cent = mean(_Q), mean(P)
 
     H = zero(SArray{Tuple{3,3},T})
-    for i in eachindex(Q,P)
-        p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
-        q′ = SArray{Tuple{1,3},T}(Q[i] - q_cent)
+    for i in eachindex(_Q, _P)
+        p′ = SArray{Tuple{3,1},T}(_P[i] - p_cent)
+        q′ = SArray{Tuple{1,3},T}(_Q[i] - q_cent)
 
         # Cross-covariance matrix
         H = H + (p′ * q′)
@@ -124,7 +143,7 @@ function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
 
     R = V * di * U'
     t = q_cent - p_cent
-    e = metricerror(Q, P, t, R)
+    e = metricerror(Q, P, t, present, R)
 
     qt = Quat(R)
 
@@ -160,20 +179,25 @@ function findpresent(Q::AbstractMaybePoints{T}) where T
     return present
 end
 
+function incompletefit(S::Int, Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, present::MVector) where T
+    t = zero(SVector{3, T})
+
+    if 0 < S # We can get a very rough position
+        q_cent, p_cent = mean(SVector{S,SVector{3,T}}(Q[present])), mean(P)
+        t = q_cent - p_cent
+    end
+
+    qt = one(Quat{T})
+    e = T(NaN)
+
+    return (qt, t, e)
+end
+
+
 function _fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, present::MVector, maxiters::Int, ϵ::T)::Tuple{Quat{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
-        t = zero(SVector{3, T})
-
-        if 0 < S # We can get a very rough position
-            q_cent, p_cent = mean(SVector{S,SVector{3,T}}(Q[present])), mean(P)
-            t = q_cent - p_cent
-        end
-
-        qt = one(Quat{T})
-        e = T(NaN)
-
-        return (qt, t, e)
+        return incompletefit(S, Q, P, present)
     end
 
     #Calculate point set's centroid
