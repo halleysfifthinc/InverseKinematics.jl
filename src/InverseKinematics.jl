@@ -7,8 +7,8 @@ using LinearAlgebra: norm_sqr
 
 using Rotations, CoordinateTransformations, StaticArrays
 
-export kabsch!,
-       fa3r!,
+export kabsch,
+       fa3r,
        fitseg,
        metricerror,
        rmat,
@@ -32,6 +32,7 @@ end
 FA3R() = FA3R{Float32}(750, 1f-15)
 
 AbstractPoints{T} = AbstractVector{SVector{3,T}}
+AbstractMaybePoints{T} = AbstractVector{SVector{3,S}} where S <: Union{Missing, T}
 
 struct IKSeg{N,T}
     def::SVector{N,SVector{3,T}}
@@ -130,25 +131,27 @@ function kabsch!(Q::AbstractPoints{T}, P::AbstractPoints{T}) where T
     return (qt, t, e)
 end
 
-function fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ=0) where T
-    present = findpresent(Q)#::MArray{Tuple{j},Int,1,j}
+function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ::T=0) where T
+    present = findpresent(Q)
 
-    _fa3r!(Q, P, present, maxiters, ϵ)::Tuple{Quat{T},SVector{3,T},T}
+    _fa3r(Q, P, present, maxiters, ϵ)
 end
 
-function findpresent(Q::AbstractPoints{T}) where T
-    N = 0
-    for i in eachindex(Q)
-        if Q[i] !== SVector{3,T}(NaN, NaN, NaN)
-            N += 1
-        end
-    end
+function fa3r(Q::AbstractPoints{T}, P::AbstractPoints{T}, maxiters::Int=100, ϵ::T=0) where T
+    present = axes(Q, 1)
 
+    _fa3r(Q, P, present, maxiters, ϵ)
+end
+
+function findpresent(Q::AbstractMaybePoints{T}) where T
+    misspt = SVector{3,Union{Missing,T}}(missing, missing, missing)
+    boolpres = Q .!== Ref(misspt)
+    N = sum(boolpres)
     present = MArray{Tuple{N},Int,1,N}(undef)
 
     j = 1
     for i in eachindex(Q)
-        if Q[i] !== SVector{3,T}(NaN, NaN, NaN)
+        if boolpres[i]
             present[j] = i
             j += 1
         end
@@ -157,12 +160,13 @@ function findpresent(Q::AbstractPoints{T}) where T
     return present
 end
 
-function _fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, present::MVector{S}, maxiters::Int=100, ϵ=0) where T where S
+function _fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, present::MVector, maxiters::Int, ϵ::T)::Tuple{Quat{T},SVector{3,T},T} where T
+    S = length(present)
     if S < 3 # A full fit isn't possible
         t = zero(SVector{3, T})
 
         if 0 < S # We can get a very rough position
-            q_cent, p_cent = mean(Q[present]), mean(P)
+            q_cent, p_cent = mean(SVector{S,SVector{3,T}}(Q[present])), mean(P)
             t = q_cent - p_cent
         end
 
@@ -172,13 +176,13 @@ function _fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, present::MVector{S},
         return (qt, t, e)
     end
 
-    # Calculate point set's centroid
-    q_cent, p_cent = mean(Q[present])::SVector{3,T}, mean(P)
+    #Calculate point set's centroid
+    q_cent, p_cent = mean(SVector{S,SVector{3,T}}(Q[present])), mean(P)
 
     H = zero(SArray{Tuple{3,3},T})
     for i in present
         p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
-        q′ = SArray{Tuple{1,3},T}(Q[i]::SVector{3,T} - q_cent)
+        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - q_cent)
 
         # Cross-covariance matrix
         H = H + (p′ * q′)
@@ -207,10 +211,10 @@ function _fa3r!(Q::AbstractPoints{T}, P::AbstractPoints{T}, present::MVector{S},
     end
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
-    t::SVector{3,T} = q_cent - p_cent
+    t = q_cent - p_cent
     e = metricerror(Q, P, t, present, R)
 
-    qt = Quat{T}(R)
+    qt = Quat(R)
 
     return (qt, t, e)
 end
@@ -225,12 +229,12 @@ function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}
     return e/n
 end
 
-function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, t::SVector{3,T}, idxs, R::SMatrix{3,3,T}) where T
+function metricerror(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, t::SVector{3,T}, idxs, R::SMatrix{3,3,T}) where T
     e = zero(eltype(R))
     n = length(idxs)
 
     for i in idxs
-        e += norm(Q[i] - R*P[i] - t)
+        e += norm(SVector{3,T}(Q[i]) - R*P[i] - t)
     end
     return e/n
 end
