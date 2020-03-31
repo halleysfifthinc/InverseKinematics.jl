@@ -16,7 +16,10 @@ export kabsch,
 
 export SegOpt,
        Kabsch,
-       FA3R
+       FA3R,
+       IKSeg,
+       AbstractPoints,
+       AbstractMaybePoints
 
 struct SegOpt{T}
     alg::T
@@ -36,7 +39,6 @@ AbstractMaybePoints{T} = AbstractVector{SVector{3,S}} where S <: Union{Missing, 
 
 struct IKSeg{N,T}
     def::SVector{N,SVector{3,T}}
-    pos::SVector{3,T}
     ori::Quat{T}
     prox::SVector{3,T}
     dist::SVector{3,T}
@@ -78,12 +80,8 @@ function inversekinematics(::SegOpt{Kabsch}, model, data)
         segikpos = view(ikdata[seg].pos)
         segike = view(ikdata[seg].e)
 
-        tmp1 = similar(seg.def, SArray{Tuple{1,3},T,2,3})
-        tmp2 = similar(seg.def, SArray{Tuple{3,1},T,2,3})
-        Ht = similar(seg.def, SArray{Tuple{3,3},T,2,9})
-
         for (i, frame) in enumerate(data[seg])
-            q, t, e = kabsch!(frame, seg.def, tmp1, tmp2, Ht)
+            q, t, e = kabsch(frame, seg.def)
             segikori[i] = q
             segikpos[i] = t
             segike[i] = e
@@ -92,12 +90,12 @@ function inversekinematics(::SegOpt{Kabsch}, model, data)
     return ikdata
 end
 
-function fitseg(::Kabsch, Q, P)
-    kabsch(Q, P)
+function fitseg(::Kabsch, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
+    kabsch(Q, P, w)
 end
 
-function fitseg(f::FA3R, Q, P)
-    fa3r(Q, P, f.maxiters, f.ϵ)
+function fitseg(f::FA3R, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
+    fa3r(Q, P, w, f.maxiters, f.ϵ)
 end
 
 _throw_mismatch_pointset_lengths() = throw(ArgumentError("`Q` and `P` must have the same number of points"))
@@ -121,47 +119,31 @@ function kabsch(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}
     kabsch(Q, P, w, present)
 end
 
-function kabsch(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int})::Tuple{Quat{T},SVector{3,T},T} where T
+function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int})::Tuple{Quat{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
         return incompletefit(S, Q, P, w, present)
     end
 
     #Calculate point set's centroid
-    ŵ = sum(w)
-
-    q_cent, p_cent = zero(SVector{3,T}), zero(SVector{3,T})
-    for i in present
-        q_cent = SVector{3,T}(Q[i])*w[i] + q_cent
-        p_cent = P[i]*w[i] + p_cent
-    end
-    q_cent = q_cent/ŵ
-    p_cent = p_cent/ŵ
-
-    H = zero(SArray{Tuple{3,3},T})
-    for i in present
-        p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
-        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - q_cent)
-
-        # Cross-covariance matrix
-        H = H + (p′ * q′)*w[i]
-    end
-    H = H/ŵ
+    q̄ = weightedmean(Q, w, present)
+    p̄ = weightedmean(P, w, present)
+    H = crosscov(Q, q̄, P, p̄, w, present)
 
     # SVD
-    Hsvd = svd(H)
-    V = Hsvd.V
-    U = Hsvd.U
+    # Hsvd = svd(H)
+    Hsvd = svd(Matrix(H); full=true, alg=LinearAlgebra.QRIteration())
+    V = SMatrix{3,3}(Hsvd.V)
+    U = SMatrix{3,3}(Hsvd.U)
 
     # Correct for handedness (corrects to a right-handed system)
     Hp = V*U'
     di = SMatrix{3,3}(Diagonal(SVector{3}(1, 1, sign(det(Hp)))))
 
     R = V * di * U'
-    t = q_cent - p_cent
-    e = metricerror(Q, P, w, t, present, R)
-
     qt = Quat(R)
+    t = q̄ - qt*p̄
+    e = metricerror(Q, P, w, t, present, qt)
 
     return (qt, t, e)
 end
@@ -184,47 +166,6 @@ function fa3r(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=f
     fa3r(Q, P, w, present, maxiters, ϵ)
 end
 
-function findpresent(Q::AbstractMaybePoints{T}) where T
-    misspt = SVector{3,Union{Missing,T}}(missing, missing, missing)
-    boolpres = Q .!== Ref(misspt)
-    N = sum(boolpres)
-    present = MArray{Tuple{N},Int,1,N}(undef)
-
-    j = 1
-    for i in eachindex(Q)
-        if boolpres[i]
-            present[j] = i
-            j += 1
-        end
-    end
-
-    return present
-end
-
-function incompletefit(S::Int, Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}) where T
-    t = zero(SVector{3, T})
-
-    if 0 < S # We can get a very rough position
-        ŵ = sum(w)
-
-        q_cent, p_cent = zero(SVector{3,T}), zero(SVector{3,T})
-        for i in present
-            q_cent = SVector{3,T}(Q[i])*w[i] + q_cent
-            p_cent = P[i]*w[i] + p_cent
-        end
-        q_cent = q_cent/ŵ
-        p_cent = p_cent/ŵ
-
-        t = q_cent - p_cent
-    end
-
-    qt = one(Quat{T})
-    e = T(NaN)
-
-    return (qt, t, e)
-end
-
-
 function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}, maxiters::Int, ϵ::T)::Tuple{Quat{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
@@ -232,25 +173,9 @@ function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector
     end
 
     #Calculate point set's centroid
-    ŵ = sum(w)
-
-    q_cent, p_cent = zero(SVector{3,T}), zero(SVector{3,T})
-    for i in present
-        q_cent = SVector{3,T}(Q[i])*w[i] + q_cent
-        p_cent = P[i]*w[i] + p_cent
-    end
-    q_cent = q_cent/ŵ
-    p_cent = p_cent/ŵ
-
-    H = zero(SArray{Tuple{3,3},T})
-    for i in present
-        p′ = SArray{Tuple{3,1},T}(P[i] - p_cent)
-        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - q_cent)
-
-        # Cross-covariance matrix
-        H = H + (p′ * q′)*w[i]
-    end
-    H = H/ŵ
+    q̄ = weightedmean(Q, w, present)
+    p̄ = weightedmean(P, w, present)
+    H = crosscov(Q, q̄, P, p̄, w, present)
 
     # Iterative method a la. Wu et al. 2018
     vkx = H[:,1]
@@ -275,16 +200,82 @@ function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector
     end
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
-    t = q_cent - p_cent
-    e = metricerror(Q, P, w, t, present, R)
-
     qt = Quat(R)
+    # qt = Quat( vkx[1] + vky[2] + vkz[3],
+    #           -vky[3] + vkz[2],
+    #           -vkz[1] + vkx[3],
+    #           -vkx[2] + vky[1])
+    # qt = Quat( vkx[1] + vky[2] + vkz[3],
+    #           -vkz[2] + vky[3],
+    #           -vkx[3] + vkz[1],
+    #           -vky[1] + vkx[2])
+    t = q̄ - qt*p̄
+    e = metricerror(Q, P, w, t, present, qt)
+
 
     return (qt, t, e)
 end
 
-function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, R::SMatrix{3,3,T}) where T
-    e = zero(eltype(R))
+function findpresent(Q::AbstractMaybePoints{T}) where T
+    misspt = SVector{3,Union{Missing,T}}(missing, missing, missing)
+    boolpres = Q .!== Ref(misspt)
+    N = sum(boolpres)
+    present = MArray{Tuple{N},Int,1,N}(undef)
+
+    j = 1
+    for i in eachindex(Q)
+        if boolpres[i]
+            present[j] = i
+            j += 1
+        end
+    end
+
+    return present
+end
+
+function incompletefit(S::Int, Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}) where T
+    t = zero(SVector{3, T})
+
+    if S > 0 # We can get a very rough position
+        q_cent = weightedmean(Q, w, present)
+        p_cent = weightedmean(P, w, present)
+
+        t = q_cent - p_cent
+    end
+
+    qt = one(Quat{T})
+    e = T(NaN)
+
+    return (qt, t, e)
+end
+
+function weightedmean(X, w::AbstractVector{T}, present::AbstractVector{Int}) where T
+    center = zero(SVector{3,T})
+    for i in present
+        center = SVector{3,T}(X[i])*w[i] + center
+    end
+
+    return center/sum(w)
+end
+
+function crosscov(Q, q̄::SVector{3,T}, P::AbstractPoints{T}, p̄::SVector{3,T}, w::AbstractVector{T}, present::AbstractVector{Int}) where T
+    ŵ = sum(w)
+
+    H = zero(SArray{Tuple{3,3},T})
+    for i in present
+        p′ = SArray{Tuple{3,1},T}(P[i] - q̄)
+        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - p̄)
+
+        # Cross-covariance matrix
+        H = H + (p′ * q′)*w[i]
+    end
+    H = H/ŵ
+
+    return H
+end
+
+function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, R::Rotation{3,T}) where T
+    e = zero(T)
 
     ŵ = sum(w)
     for i in eachindex(Q,P)
@@ -293,9 +284,8 @@ function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVect
     return e/ŵ
 end
 
-function metricerror(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, idxs, R::SMatrix{3,3,T}) where T
-    e = zero(eltype(R))
-    n = length(idxs)
+function metricerror(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, idxs, R::Rotation{3,T}) where T
+    e = zero(T)
 
     ŵ = sum(w)
     for i in idxs
