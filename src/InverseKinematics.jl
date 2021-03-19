@@ -39,7 +39,7 @@ AbstractMaybePoints{T} = AbstractVector{SVector{3,S}} where S <: Union{Missing, 
 
 struct IKSeg{N,T}
     def::SVector{N,SVector{3,T}}
-    ori::Quat{T}
+    ori::UnitQuaternion{T}
     prox::SVector{3,T}
     dist::SVector{3,T}
 end
@@ -48,7 +48,7 @@ struct IKModel{T}
 end
 
 struct IKSegResult{T}
-    ori::Vector{Quat{T}}
+    ori::Vector{UnitQuaternion{T}}
     pos::Vector{SVector{3,T}}
     e::Vector{T}
 end
@@ -60,7 +60,7 @@ function IKResult(model::IKModel, data)
     ikr = Dict{Symbol,IKSegResult{T}}()
 
     for seg in model
-        ikr[seg] = IKSegResult{T}(Vector{Quat{T}}(undef, l),
+        ikr[seg] = IKSegResult{T}(Vector{UnitQuaternion{T}}(undef, l),
                                   Vector{SVector{3,T}}(undef, l),
                                   Vector{T}(undef, l))
     end
@@ -119,7 +119,7 @@ function kabsch(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}
     kabsch(Q, P, w, present)
 end
 
-function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int})::Tuple{Quat{T},SVector{3,T},T} where T
+function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int})::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
         return incompletefit(S, Q, P, w, present)
@@ -141,7 +141,7 @@ function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::Abstract
     di = SMatrix{3,3}(Diagonal(SVector{3}(1, 1, sign(det(Hp)))))
 
     R = V * di * U'
-    qt = Quat(R)
+    qt = UnitQuaternion(R)
     t = q̄ - qt*p̄
     e = metricerror(Q, P, w, t, present, qt)
 
@@ -166,7 +166,7 @@ function fa3r(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=f
     fa3r(Q, P, w, present, maxiters, ϵ)
 end
 
-function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}, maxiters::Int, ϵ::T)::Tuple{Quat{T},SVector{3,T},T} where T
+function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}, maxiters::Int, ϵ::T)::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
         return incompletefit(S, Q, P, w, present)
@@ -200,12 +200,12 @@ function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector
     end
 
     R = SMatrix{3,3}(vkx[1], vky[1], vkz[1], vkx[2], vky[2], vkz[2], vkx[3], vky[3], vkz[3])
-    qt = Quat(R)
-    # qt = Quat( vkx[1] + vky[2] + vkz[3],
+    qt = UnitQuaternion(R)
+    # qt = UnitQuaternion( vkx[1] + vky[2] + vkz[3],
     #           -vky[3] + vkz[2],
     #           -vkz[1] + vkx[3],
     #           -vkx[2] + vky[1])
-    # qt = Quat( vkx[1] + vky[2] + vkz[3],
+    # qt = UnitQuaternion( vkx[1] + vky[2] + vkz[3],
     #           -vkz[2] + vky[3],
     #           -vkx[3] + vkz[1],
     #           -vky[1] + vkx[2])
@@ -243,7 +243,7 @@ function incompletefit(S::Int, Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, 
         t = q_cent - p_cent
     end
 
-    qt = one(Quat{T})
+    qt = one(UnitQuaternion{T})
     e = T(NaN)
 
     return (qt, t, e)
