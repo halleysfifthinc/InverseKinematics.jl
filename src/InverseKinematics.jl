@@ -1,25 +1,13 @@
 module InverseKinematics
 
-using LinearAlgebra,
-      Statistics
-
+using LinearAlgebra, Statistics
 using LinearAlgebra: norm_sqr
 
 using Rotations, CoordinateTransformations, StaticArrays
 
-export kabsch,
-       fa3r,
-       fitseg,
-       metricerror,
-       rmat,
-       unit
+export kabsch, fa3r, fitseg, metricerror, rmat, unit
 
-export SegOpt,
-       Kabsch,
-       FA3R,
-       IKSeg,
-       AbstractPoints,
-       AbstractMaybePoints
+export SegOpt, Kabsch, FA3R, IKSeg, AbstractPoints, AbstractMaybePoints
 
 struct SegOpt{T}
     alg::T
@@ -47,10 +35,34 @@ end
 struct IKModel{T}
 end
 
-struct IKSegResult{T}
+struct IKSegResult{T} <: AbstractArray{T,1}
     ori::Vector{UnitQuaternion{T}}
     pos::Vector{SVector{3,T}}
     e::Vector{T}
+end
+
+function IKSegResult{T}(::UndefInitializer, len::Integer) where T
+    return IKSegResult{T}(Vector{UnitQuaternion{T}}(undef, len),
+                          Vector{SVector{3,T}}(undef, len),
+                          Vector{T}(undef, len))
+end
+
+Base.size(x::IKSegResult) = size(x.e)
+Base.length(x::IKSegResult) = length(x.e)
+
+Base.getindex(x::IKSegResult, i::Int) = (;ori=x.ori[i], pos=x.pos[i], e=x.e[i])
+Base.getindex(x::IKSegResult, i) = IKSegResult(x.ori[i], x.pos[i], x.e[i])
+
+function Base.setindex!(
+    x::IKSegResult{T},
+    val::Tuple{UnitQuaternion{T},SVector{3,T},T},
+    i
+) where T
+    x.ori[i] = val[1]
+    x.pos[i] = val[2]
+    x.e[i] = val[3]
+
+    return x
 end
 
 function IKResult(model::IKModel, data)
@@ -75,51 +87,58 @@ Calculate the kinematics of `model` using `data` and the specified algorithm, `a
 """
 function inversekinematics(::SegOpt{Kabsch}, model, data)
     ikdata = IKResult(model, data)
-    for seg in model
-        segikori = view(ikdata[seg].ori)
-        segikpos = view(ikdata[seg].pos)
-        segike = view(ikdata[seg].e)
-
-        for (i, frame) in enumerate(data[seg])
-            q, t, e = kabsch(frame, seg.def)
-            segikori[i] = q
-            segikpos[i] = t
-            segike[i] = e
-        end
+    for seg in model, (i, frame) in enumerate(data[seg])
+        ikdata[seg][i] = kabsch(frame, seg.def)
     end
     return ikdata
 end
 
-function fitseg(::Kabsch, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
+function fitseg(
+    ::Kabsch, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))
+) where T
     kabsch(Q, P, w)
 end
 
-function fitseg(f::FA3R, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
+function fitseg(
+    f::FA3R, Q, P::AbstractPoints{T}; w::AbstractVector{T}=fill!(similar(P, T), one(T))
+) where T
     fa3r(Q, P, w, f.maxiters, f.ϵ)
 end
 
-_throw_mismatch_pointset_lengths() = throw(ArgumentError("`Q` and `P` must have the same number of points"))
-_throw_mismatch_weight_length() = throw(ArgumentError("Weight vector must be the same length as `Q` and `P`"))
+_throw_mismatch_pointset_lengths(qlen, plen) = throw(ArgumentError("`Q` and `P` must have" *
+    "the same number of points; got length(Q) == $qlen and length(P) == $plen"))
+_throw_mismatch_weight_length(len, wlen) = throw(ArgumentError("Weight vector must be the" *
+    "same length as `Q` and `P`; got length(Q) == length(P) == $len and length(w) == $wlen"))
 
-function kabsch(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
-    length(Q) === length(P) || _throw_mismatch_pointset_lengths()
-    length(Q) === length(w) || _throw_mismatch_weight_length()
+function kabsch(
+    Q::AbstractMaybePoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T}=fill!(similar(P, T), one(T))
+) where T
+    length(Q) === length(P) || _throw_mismatch_pointset_lengths(length(Q), length(P))
+    length(Q) === length(w) || _throw_mismatch_weight_length(length(Q), length(w))
 
     present = findpresent(Q)
 
     kabsch(Q, P, w, present)
 end
 
-function kabsch(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=fill!(similar(P, T), one(T))) where T
-    length(Q) === length(P) || _throw_mismatch_pointset_lengths()
-    length(Q) === length(w) || _throw_mismatch_weight_length()
+function kabsch(
+    Q::AbstractPoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T}=fill!(similar(P, T), one(T))
+) where T
+    length(Q) === length(P) || _throw_mismatch_pointset_lengths(length(Q), length(P))
+    length(Q) === length(w) || _throw_mismatch_weight_length(length(Q), length(w))
 
     present = axes(Q, 1)
 
     kabsch(Q, P, w, present)
 end
 
-function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int})::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
+function kabsch(
+    Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}
+)::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
         return incompletefit(S, Q, P, w, present)
@@ -137,10 +156,10 @@ function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::Abstract
     U = SMatrix{3,3}(Hsvd.U)
 
     # Correct for handedness (corrects to a right-handed system)
-    Hp = V*U'
+    Hp = V*transpose(U)
     di = SMatrix{3,3}(Diagonal(SVector{3}(1, 1, sign(det(Hp)))))
 
-    R = V * di * U'
+    R = V * di * transpose(U)
     qt = UnitQuaternion(R)
     t = q̄ - qt*p̄
     e = metricerror(Q, P, w, t, present, qt)
@@ -148,7 +167,12 @@ function kabsch(Q, P::AbstractPoints{T}, w::AbstractVector{T}, present::Abstract
     return (qt, t, e)
 end
 
-function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=fill!(similar(P, T), one(T)), maxiters::Int=100, ϵ::T=0) where T
+function fa3r(
+    Q::AbstractMaybePoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T}=fill!(similar(P, T), one(T)),
+    maxiters::Int=100, ϵ::T=0
+) where T
     length(Q) === length(P) || _throw_mismatch_pointset_lengths()
     length(Q) === length(w) || _throw_mismatch_weight_length()
 
@@ -157,7 +181,13 @@ function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector
     fa3r(Q, P, w, present, maxiters, ϵ)
 end
 
-function fa3r(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=fill!(similar(P, T), one(T)), maxiters::Int=100, ϵ::T=0) where T
+function fa3r(
+    Q::AbstractPoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T}=fill!(similar(P, T), one(T)),
+    maxiters::Int=100,
+    ϵ::T=0
+) where T
     length(Q) === length(P) || _throw_mismatch_pointset_lengths()
     length(Q) === length(w) || _throw_mismatch_weight_length()
 
@@ -166,7 +196,14 @@ function fa3r(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}=f
     fa3r(Q, P, w, present, maxiters, ϵ)
 end
 
-function fa3r(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}, maxiters::Int, ϵ::T)::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
+function fa3r(
+    Q::AbstractMaybePoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T},
+    present::AbstractVector{Int},
+    maxiters::Int,
+    ϵ::T
+)::Tuple{UnitQuaternion{T},SVector{3,T},T} where T
     S = length(present)
     if S < 3 # A full fit isn't possible
         return incompletefit(S, Q, P, w, present)
@@ -233,7 +270,13 @@ function findpresent(Q::AbstractMaybePoints{T}) where T
     return present
 end
 
-function incompletefit(S::Int, Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, present::AbstractVector{Int}) where T
+function incompletefit(
+    S::Int,
+    Q::AbstractMaybePoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T},
+    present::AbstractVector{Int}
+) where T
     t = zero(SVector{3, T})
 
     if S > 0 # We can get a very rough position
@@ -258,23 +301,36 @@ function weightedmean(X, w::AbstractVector{T}, present::AbstractVector{Int}) whe
     return center/sum(w)
 end
 
-function crosscov(Q, q̄::SVector{3,T}, P::AbstractPoints{T}, p̄::SVector{3,T}, w::AbstractVector{T}, present::AbstractVector{Int}) where T
+function crosscov(
+    Q,
+    q̄::SVector{3,T},
+    P::AbstractPoints{T},
+    p̄::SVector{3,T},
+    w::AbstractVector{T},
+    present::AbstractVector{Int}
+) where T
     ŵ = sum(w)
 
     H = zero(SArray{Tuple{3,3},T})
     for i in present
-        p′ = SArray{Tuple{3,1},T}(P[i] - q̄)
-        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - p̄)
+        p′ = SArray{Tuple{3,1},T}(P[i] - p̄)
+        q′ = SArray{Tuple{1,3},T}(SVector{3,T}(Q[i]) - q̄)
 
         # Cross-covariance matrix
         H = H + (p′ * q′)*w[i]
     end
-    H = H/ŵ
+    H = H#/ŵ
 
     return H
 end
 
-function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, R::Rotation{3,T}) where T
+function metricerror(
+    Q::AbstractPoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T},
+    t::SVector{3,T},
+    R::Rotation{3,T}
+) where T
     e = zero(T)
 
     ŵ = sum(w)
@@ -284,7 +340,14 @@ function metricerror(Q::AbstractPoints{T}, P::AbstractPoints{T}, w::AbstractVect
     return e/ŵ
 end
 
-function metricerror(Q::AbstractMaybePoints{T}, P::AbstractPoints{T}, w::AbstractVector{T}, t::SVector{3,T}, idxs, R::Rotation{3,T}) where T
+function metricerror(
+    Q::AbstractMaybePoints{T},
+    P::AbstractPoints{T},
+    w::AbstractVector{T},
+    t::SVector{3,T},
+    idxs,
+    R::Rotation{3,T}
+) where T
     e = zero(T)
 
     ŵ = sum(w)
